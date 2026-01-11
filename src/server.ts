@@ -25,6 +25,29 @@ const io = new Server(httpServer, {
     }
 });
 
+// --- Interfaces ---
+interface Tile {
+    id: string;
+    type: 'start' | 'end' | 'special' | 'normal';
+    index: number; // Position linéaire 0-19
+}
+
+interface Player {
+    id: string;
+    color: 'cyan' | 'violet';
+    position: number; // Index sur le plateau
+    score: number;
+}
+
+interface GameState {
+    roomId: string;
+    tiles: Tile[];
+    players: Player[];
+}
+
+// --- Stockage des états de jeu ---
+const games: Record<string, GameState> = {};
+
 // Route de test API
 app.get('/', (req, res) => {
     res.send('Serveur SHIFT + Socket.io opérationnels !');
@@ -45,7 +68,42 @@ io.on('connection', (socket) => {
         socket.join(roomId);
         console.log(`🏠 Joueur ${socket.id} a rejoint la salle : ${roomId}`);
 
+        // --- Initialisation / Récupération de la partie ---
+        if (!games[roomId]) {
+            // Création d'une nouvelle partie si elle n'existe pas
+            const initialTiles: Tile[] = Array.from({ length: 20 }, (_, i) => ({
+                id: `tile-${i}`,
+                index: i,
+                type: i === 0 ? 'start' : i === 19 ? 'end' : i % 5 === 0 ? 'special' : 'normal'
+            }));
+
+            games[roomId] = {
+                roomId,
+                tiles: initialTiles,
+                players: []
+            };
+            console.log(`✨ Nouvelle partie créée pour la salle ${roomId}`);
+        }
+
+        // Ajout du joueur s'il n'est pas déjà présent
+        const game = games[roomId];
+        const existingPlayer = game.players.find(p => p.id === socket.id);
+
+        if (!existingPlayer) {
+            const newPlayer: Player = {
+                id: socket.id,
+                color: game.players.length === 0 ? 'cyan' : 'violet', // Premier = cyan, Deuxième = violet
+                position: 0,
+                score: 0
+            };
+            game.players.push(newPlayer);
+            console.log(`👤 Joueur ${socket.id} ajouté à la partie (Couleur: ${newPlayer.color})`);
+        }
+
         socket.emit('room_joined', roomId);
+
+        // Émission de l'état complet du jeu à TOUS les membres de la salle (y compris le nouveau)
+        io.to(roomId).emit('game_state_sync', game);
 
         socket.to(roomId).emit('player_joined_room', {
             id: socket.id,
@@ -85,6 +143,8 @@ io.on('connection', (socket) => {
      */
     socket.on('disconnect', () => {
         console.log(`❌ Joueur déconnecté : ${socket.id}`);
+        // Optionnel : Retirer le joueur de la partie ou marquer comme déconnecté
+        // Pour l'instant, on garde l'état en mémoire
     });
 });
 
