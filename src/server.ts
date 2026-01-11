@@ -44,6 +44,7 @@ interface GameState {
     tiles: Tile[];
     players: Player[];
     currentTurn: string; // ID du joueur dont c'est le tour
+    status: 'playing' | 'finished';
 }
 
 // --- Stockage des états de jeu ---
@@ -82,30 +83,50 @@ io.on('connection', (socket) => {
                 roomId,
                 tiles: initialTiles,
                 players: [],
-                currentTurn: "" // Sera défini quand le premier joueur rejoint
+                currentTurn: "", // Sera défini quand le premier joueur rejoint
+                status: 'playing'
             };
             console.log(`✨ Nouvelle partie créée pour la salle ${roomId}`);
         }
 
-        // Ajout du joueur s'il n'est pas déjà présent
         const game = games[roomId];
-        const existingPlayer = game.players.find(p => p.id === socket.id);
 
-        if (!existingPlayer) {
-            const newPlayer: Player = {
-                id: socket.id,
-                color: game.players.length === 0 ? 'cyan' : 'violet', // Premier = cyan, Deuxième = violet
-                position: 0,
-                score: 0
-            };
-            game.players.push(newPlayer);
+        // --- Nettoyage et Limitation (SJDP-Fix) ---
+        // Si la partie est finie, on ne laisse pas rejoindre pour éviter l'accumulation
+        // Sauf si on implémente un mode spectateur, mais ici on veut éviter les fantômes
+        
+        // Limitation à 2 joueurs actifs
+        if (game.players.length >= 2) {
+            // Vérifier si le joueur est déjà dedans (reconnexion)
+            const existingPlayerIndex = game.players.findIndex(p => p.id === socket.id);
             
-            // Si c'est le premier joueur, c'est son tour
-            if (game.players.length === 1) {
-                game.currentTurn = newPlayer.id;
+            if (existingPlayerIndex === -1) {
+                // Si la salle est pleine et que ce n'est pas une reconnexion, on rejette ou on met en spectateur
+                // Pour l'instant, on accepte mais on ne crée pas de nouveau joueur
+                console.log(`⚠️ Salle ${roomId} pleine. ${socket.id} rejoint en spectateur.`);
+            } else {
+                console.log(`🔄 Reconnexion du joueur ${socket.id}`);
             }
+        } else {
+            // Ajout du joueur s'il n'est pas déjà présent
+            const existingPlayer = game.players.find(p => p.id === socket.id);
 
-            console.log(`👤 Joueur ${socket.id} ajouté à la partie (Couleur: ${newPlayer.color})`);
+            if (!existingPlayer) {
+                const newPlayer: Player = {
+                    id: socket.id,
+                    color: game.players.length === 0 ? 'cyan' : 'violet', // Premier = cyan, Deuxième = violet
+                    position: 0,
+                    score: 0
+                };
+                game.players.push(newPlayer);
+                
+                // Si c'est le premier joueur, c'est son tour
+                if (game.players.length === 1) {
+                    game.currentTurn = newPlayer.id;
+                }
+
+                console.log(`👤 Joueur ${socket.id} ajouté à la partie (Couleur: ${newPlayer.color})`);
+            }
         }
 
         socket.emit('room_joined', roomId);
@@ -120,6 +141,38 @@ io.on('connection', (socket) => {
     });
 
     /**
+     * Tâche SJDP-Fix : Reset Game
+     */
+    socket.on('reset_game', (data: { roomId: string }) => {
+        const game = games[data.roomId];
+        if (game) {
+            console.log(`🔄 Reset de la partie ${data.roomId} demandé par ${socket.id}`);
+            
+            // Réinitialisation de l'état
+            game.status = 'playing';
+            game.players = []; // On vide les joueurs pour forcer une reconnexion propre ou on les reset
+            game.currentTurn = "";
+            
+            // On notifie tout le monde que la partie a été reset
+            // Les clients devront probablement rejoindre à nouveau ou on reset leurs positions
+            // Pour simplifier, on reset les positions des joueurs connectés s'ils sont encore là
+            // Mais comme on a vidé la liste, ils devront se reconnecter (F5) ou on gère ça mieux :
+            
+            // Option B : On garde les joueurs mais on reset leurs stats
+            // game.players.forEach(p => {
+            //     p.position = 0;
+            //     p.score = 0;
+            // });
+            // if (game.players.length > 0) game.currentTurn = game.players[0].id;
+            
+            // Option A (Radicale pour dev) : On supprime la game
+            delete games[data.roomId];
+            
+            io.to(data.roomId).emit('game_reset', { message: "La partie a été réinitialisée. Veuillez rafraîchir." });
+        }
+    });
+
+    /**
      * Tâche SJDP-42 & SJDP-43 : Lancer de dé synchronisé
      */
     socket.on('roll_dice', (data: { roomId: string }) => {
@@ -128,6 +181,12 @@ io.on('connection', (socket) => {
         // 1. Validation de la partie
         if (!game) {
             socket.emit('error', { message: "Partie introuvable." });
+            return;
+        }
+
+        // Vérification si la partie est déjà finie
+        if (game.status === 'finished') {
+            socket.emit('error', { message: "La partie est terminée !" });
             return;
         }
 
@@ -156,17 +215,36 @@ io.on('connection', (socket) => {
             player.position = newPosition;
             player.score += diceValue * 10; // Score arbitraire pour l'instant
             
-            // 4. Gestion du tour suivant
-            // On passe au joueur suivant dans la liste (boucle circulaire)
-            const nextPlayerIndex = (playerIndex + 1) % game.players.length;
-            game.currentTurn = game.players[nextPlayerIndex].id;
+            // 4. Vérification de la victoire (SJDP-39)
+            if (player.position === 19) {
+                game.status = 'finished';
+                console.log(`🏆 VICTOIRE : Joueur ${socket.id} a gagné dans la salle ${data.roomId}`);
+                
+                // On diffuse le mouvement final
+                io.to(data.roomId).emit('dice_result', {
+                    diceValue,
+                    players: game.players,
+                    currentTurn: game.currentTurn // Le tour ne change pas
+                });
 
-            // 5. Diffusion
-            io.to(data.roomId).emit('dice_result', {
-                diceValue,
-                players: game.players,
-                currentTurn: game.currentTurn
-            });
+                // On annonce le gagnant
+                io.to(data.roomId).emit('game_over', {
+                    winnerId: player.id,
+                    winnerName: `Player ${playerIndex + 1}` // Nom générique basé sur l'index
+                });
+            } else {
+                // 5. Gestion du tour suivant (si pas de victoire)
+                // On passe au joueur suivant dans la liste (boucle circulaire)
+                const nextPlayerIndex = (playerIndex + 1) % game.players.length;
+                game.currentTurn = game.players[nextPlayerIndex].id;
+
+                // Diffusion normale
+                io.to(data.roomId).emit('dice_result', {
+                    diceValue,
+                    players: game.players,
+                    currentTurn: game.currentTurn
+                });
+            }
         }
     });
 
