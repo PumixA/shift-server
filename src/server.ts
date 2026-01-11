@@ -3,6 +3,9 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { GameState, Player, Tile } from './types/game';
+import { processDiceRoll } from './engine/processor';
+import { ActionType, TriggerType } from './types/rules';
 
 // --- Configuration initiale ---
 dotenv.config();
@@ -24,28 +27,6 @@ const io = new Server(httpServer, {
         methods: ["GET", "POST"]
     }
 });
-
-// --- Interfaces ---
-interface Tile {
-    id: string;
-    type: 'start' | 'end' | 'special' | 'normal';
-    index: number; // Position linéaire 0-19
-}
-
-interface Player {
-    id: string;
-    color: 'cyan' | 'violet';
-    position: number; // Index sur le plateau
-    score: number;
-}
-
-interface GameState {
-    roomId: string;
-    tiles: Tile[];
-    players: Player[];
-    currentTurn: string; // ID du joueur dont c'est le tour
-    status: 'playing' | 'finished';
-}
 
 // --- Stockage des états de jeu ---
 const games: Record<string, GameState> = {};
@@ -84,7 +65,22 @@ io.on('connection', (socket) => {
                 tiles: initialTiles,
                 players: [],
                 currentTurn: "", // Sera défini quand le premier joueur rejoint
-                status: 'playing'
+                status: 'playing',
+                activeRules: [
+                    {
+                        id: "test-turbo",
+                        trigger: TriggerType.ON_LAND,
+                        priority: 1,
+                        conditions: [],
+                        effects: [
+                            {
+                                type: ActionType.MOVE_RELATIVE,
+                                value: 2,
+                                target: 'self'
+                            }
+                        ]
+                    }
+                ] // Initialisation des règles actives avec la règle de test
             };
             console.log(`✨ Nouvelle partie créée pour la salle ${roomId}`);
         }
@@ -176,7 +172,7 @@ io.on('connection', (socket) => {
      * Tâche SJDP-42 & SJDP-43 : Lancer de dé synchronisé
      */
     socket.on('roll_dice', (data: { roomId: string }) => {
-        const game = games[data.roomId];
+        let game = games[data.roomId];
         
         // 1. Validation de la partie
         if (!game) {
@@ -201,20 +197,14 @@ io.on('connection', (socket) => {
         const diceValue = Math.floor(Math.random() * 6) + 1;
         console.log(`🎲 ${socket.id} a roulé un ${diceValue} dans la salle ${data.roomId}`);
 
-        // Mise à jour du joueur
-        const playerIndex = game.players.findIndex(p => p.id === socket.id);
-        if (playerIndex !== -1) {
-            const player = game.players[playerIndex];
-            
-            // Calcul de la nouvelle position (max 19)
-            let newPosition = player.position + diceValue;
-            if (newPosition > 19) {
-                newPosition = 19; // Bloqué à la fin
-            }
-            
-            player.position = newPosition;
-            player.score += diceValue * 10; // Score arbitraire pour l'instant
-            
+        // --- DÉLÉGATION AU MOTEUR DE JEU (SJDP-54) ---
+        game = processDiceRoll(game, socket.id, diceValue);
+        games[data.roomId] = game; // Mise à jour de l'état global
+
+        // Récupération du joueur mis à jour pour vérifier la victoire
+        const player = game.players.find(p => p.id === socket.id);
+        
+        if (player) {
             // 4. Vérification de la victoire (SJDP-39)
             if (player.position === 19) {
                 game.status = 'finished';
@@ -230,11 +220,12 @@ io.on('connection', (socket) => {
                 // On annonce le gagnant
                 io.to(data.roomId).emit('game_over', {
                     winnerId: player.id,
-                    winnerName: `Player ${playerIndex + 1}` // Nom générique basé sur l'index
+                    winnerName: `Player ${game.players.indexOf(player) + 1}` // Nom générique basé sur l'index
                 });
             } else {
                 // 5. Gestion du tour suivant (si pas de victoire)
                 // On passe au joueur suivant dans la liste (boucle circulaire)
+                const playerIndex = game.players.indexOf(player);
                 const nextPlayerIndex = (playerIndex + 1) % game.players.length;
                 game.currentTurn = game.players[nextPlayerIndex].id;
 

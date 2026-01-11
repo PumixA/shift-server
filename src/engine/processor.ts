@@ -1,0 +1,29 @@
+import { GameState } from '../types/game';
+import { ActionType, RuleEffect, TriggerType } from '../types/rules';
+import { applyRuleEffect } from './actions';
+import { getApplicableRules, sortRules, executeRuleChain } from './rule-evaluator';
+
+export function processDiceRoll(gameState: GameState, playerId: string, diceValue: number): GameState {
+    // 1. Mouvement initial (Lancer de dé)
+    const moveEffect: RuleEffect = {
+        type: ActionType.MOVE_RELATIVE,
+        value: diceValue,
+        target: 'self'
+    };
+
+    let newState = applyRuleEffect(gameState, playerId, moveEffect);
+
+    // 2. Détection des conséquences (Trigger: ON_LAND)
+    // On récupère les règles qui se déclenchent à l'atterrissage
+    const applicableRules = getApplicableRules(newState, TriggerType.ON_LAND, {});
+
+    // 3. Tri des règles par priorité
+    const sortedRules = sortRules(applicableRules);
+
+    // 4. Exécution de la chaîne de règles
+    if (sortedRules.length > 0) {
+        newState = executeRuleChain(newState, playerId, sortedRules);
+    }
+
+    return newState;
+}
