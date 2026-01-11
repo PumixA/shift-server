@@ -43,6 +43,7 @@ interface GameState {
     roomId: string;
     tiles: Tile[];
     players: Player[];
+    currentTurn: string; // ID du joueur dont c'est le tour
 }
 
 // --- Stockage des états de jeu ---
@@ -80,7 +81,8 @@ io.on('connection', (socket) => {
             games[roomId] = {
                 roomId,
                 tiles: initialTiles,
-                players: []
+                players: [],
+                currentTurn: "" // Sera défini quand le premier joueur rejoint
             };
             console.log(`✨ Nouvelle partie créée pour la salle ${roomId}`);
         }
@@ -97,6 +99,12 @@ io.on('connection', (socket) => {
                 score: 0
             };
             game.players.push(newPlayer);
+            
+            // Si c'est le premier joueur, c'est son tour
+            if (game.players.length === 1) {
+                game.currentTurn = newPlayer.id;
+            }
+
             console.log(`👤 Joueur ${socket.id} ajouté à la partie (Couleur: ${newPlayer.color})`);
         }
 
@@ -109,6 +117,57 @@ io.on('connection', (socket) => {
             id: socket.id,
             message: "Un nouveau joueur est arrivé !"
         });
+    });
+
+    /**
+     * Tâche SJDP-42 & SJDP-43 : Lancer de dé synchronisé
+     */
+    socket.on('roll_dice', (data: { roomId: string }) => {
+        const game = games[data.roomId];
+        
+        // 1. Validation de la partie
+        if (!game) {
+            socket.emit('error', { message: "Partie introuvable." });
+            return;
+        }
+
+        // 2. Sécurité : Vérification du tour
+        if (game.currentTurn !== socket.id) {
+            console.warn(`⚠️ Tentative de triche ou désynchro : ${socket.id} a essayé de jouer hors tour.`);
+            socket.emit('error', { message: "Ce n'est pas votre tour !" });
+            return;
+        }
+
+        // 3. Logique du jeu
+        const diceValue = Math.floor(Math.random() * 6) + 1;
+        console.log(`🎲 ${socket.id} a roulé un ${diceValue} dans la salle ${data.roomId}`);
+
+        // Mise à jour du joueur
+        const playerIndex = game.players.findIndex(p => p.id === socket.id);
+        if (playerIndex !== -1) {
+            const player = game.players[playerIndex];
+            
+            // Calcul de la nouvelle position (max 19)
+            let newPosition = player.position + diceValue;
+            if (newPosition > 19) {
+                newPosition = 19; // Bloqué à la fin
+            }
+            
+            player.position = newPosition;
+            player.score += diceValue * 10; // Score arbitraire pour l'instant
+            
+            // 4. Gestion du tour suivant
+            // On passe au joueur suivant dans la liste (boucle circulaire)
+            const nextPlayerIndex = (playerIndex + 1) % game.players.length;
+            game.currentTurn = game.players[nextPlayerIndex].id;
+
+            // 5. Diffusion
+            io.to(data.roomId).emit('dice_result', {
+                diceValue,
+                players: game.players,
+                currentTurn: game.currentTurn
+            });
+        }
     });
 
     /**
@@ -153,6 +212,6 @@ httpServer.listen(PORT, () => {
     console.log(`-----------------------------------------`);
     console.log(`🚀 SHIFT Engine : http://localhost:${PORT}`);
     console.log(`⚡ Système Nerveux (Socket.io) Activé`);
-    console.log(`🧪 Tests Ping & Shout : Prêts`);
+    console.log(`🎲 Système de Jeu (Dice & Turns) : Prêt`);
     console.log(`-----------------------------------------`);
 });
