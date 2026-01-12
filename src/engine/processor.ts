@@ -1,9 +1,11 @@
-import { GameState } from '../types/game';
+import { GameState, RuleLog } from '../types/game';
 import { ActionType, RuleEffect, TriggerType } from '../types/rules';
 import { applyRuleEffect } from './actions';
 import { getApplicableRules, sortRules, executeRuleChain } from './rule-evaluator';
 
-export function processDiceRoll(gameState: GameState, playerId: string, diceValue: number): GameState {
+export function processDiceRoll(gameState: GameState, playerId: string, diceValue: number): { state: GameState, logs: RuleLog[] } {
+    let logs: RuleLog[] = [];
+
     // 1. Mouvement initial (Lancer de dé)
     const moveEffect: RuleEffect = {
         type: ActionType.MOVE_RELATIVE,
@@ -26,8 +28,10 @@ export function processDiceRoll(gameState: GameState, playerId: string, diceValu
 
     // 4. Exécution de la chaîne de règles
     if (sortedRules.length > 0) {
-        newState = executeRuleChain(newState, playerId, sortedRules);
+        const result = executeRuleChain(newState, playerId, sortedRules);
+        newState = result.state;
+        logs = result.logs;
     }
 
-    return newState;
+    return { state: newState, logs };
 }

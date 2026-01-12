@@ -21,3 +21,8 @@ export interface GameState {
     status: 'playing' | 'finished';
     activeRules: Rule[];
 }
+
+export interface RuleLog {
+    ruleId: string;
+    message: string;
+}

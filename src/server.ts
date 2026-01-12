@@ -227,7 +227,8 @@ io.on('connection', (socket) => {
         console.log(`🎲 ${socket.id} a roulé un ${diceValue} dans la salle ${data.roomId}`);
 
         // --- DÉLÉGATION AU MOTEUR DE JEU (SJDP-54) ---
-        game = processDiceRoll(game, socket.id, diceValue);
+        const result = processDiceRoll(game, socket.id, diceValue);
+        game = result.state;
         games[data.roomId] = game; // Mise à jour de l'état global
 
         // Récupération du joueur mis à jour pour vérifier la victoire
@@ -243,7 +244,8 @@ io.on('connection', (socket) => {
                 io.to(data.roomId).emit('dice_result', {
                     diceValue,
                     players: game.players,
-                    currentTurn: game.currentTurn // Le tour ne change pas
+                    currentTurn: game.currentTurn, // Le tour ne change pas
+                    logs: result.logs
                 });
 
                 // On annonce le gagnant
@@ -262,7 +264,8 @@ io.on('connection', (socket) => {
                 io.to(data.roomId).emit('dice_result', {
                     diceValue,
                     players: game.players,
-                    currentTurn: game.currentTurn
+                    currentTurn: game.currentTurn,
+                    logs: result.logs
                 });
             }
         }
