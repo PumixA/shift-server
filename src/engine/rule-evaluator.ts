@@ -16,7 +16,19 @@ export function sortRules(rules: Rule[]): Rule[] {
 export function getApplicableRules(gameState: GameState, trigger: TriggerType, context: any): Rule[] {
     // Filtre simple sur le trigger pour l'instant
     // On pourrait ajouter ici la vérification des conditions (ex: si joueur sur case X)
-    return gameState.activeRules.filter(rule => rule.trigger === trigger);
+    return gameState.activeRules.filter(rule => {
+        if (rule.trigger !== trigger) {
+            return false;
+        }
+
+        if (rule.tileIndex !== undefined && context.position !== undefined) {
+            if (rule.tileIndex !== context.position) {
+                return false;
+            }
+        }
+
+        return true;
+    });
 }
 
 export function executeRuleChain(gameState: GameState, playerId: string, rules: Rule[]): GameState {

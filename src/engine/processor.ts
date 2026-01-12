@@ -13,9 +13,13 @@ export function processDiceRoll(gameState: GameState, playerId: string, diceValu
 
     let newState = applyRuleEffect(gameState, playerId, moveEffect);
 
+    // Récupérer la nouvelle position du joueur
+    const player = newState.players.find(p => p.id === playerId);
+    const newPosition = player ? player.position : -1;
+
     // 2. Détection des conséquences (Trigger: ON_LAND)
     // On récupère les règles qui se déclenchent à l'atterrissage
-    const applicableRules = getApplicableRules(newState, TriggerType.ON_LAND, {});
+    const applicableRules = getApplicableRules(newState, TriggerType.ON_LAND, { position: newPosition });
 
     // 3. Tri des règles par priorité
     const sortedRules = sortRules(applicableRules);

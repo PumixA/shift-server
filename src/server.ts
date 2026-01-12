@@ -68,8 +68,9 @@ io.on('connection', (socket) => {
                 status: 'playing',
                 activeRules: [
                     {
-                        id: "test-turbo",
+                        id: "turbo-tile-5",
                         trigger: TriggerType.ON_LAND,
+                        tileIndex: 5,
                         priority: 1,
                         conditions: [],
                         effects: [
@@ -79,8 +80,36 @@ io.on('connection', (socket) => {
                                 target: 'self'
                             }
                         ]
+                    },
+                    {
+                        id: "trap-tile-10",
+                        trigger: TriggerType.ON_LAND,
+                        tileIndex: 10,
+                        priority: 1,
+                        conditions: [],
+                        effects: [
+                            {
+                                type: ActionType.MOVE_RELATIVE,
+                                value: -3,
+                                target: 'self'
+                            }
+                        ]
+                    },
+                    {
+                        id: "teleport-tile-15",
+                        trigger: TriggerType.ON_LAND,
+                        tileIndex: 15,
+                        priority: 1,
+                        conditions: [],
+                        effects: [
+                            {
+                                type: ActionType.TELEPORT,
+                                value: 2, // Case 3 (Index 2)
+                                target: 'self'
+                            }
+                        ]
                     }
-                ] // Initialisation des règles actives avec la règle de test
+                ]
             };
             console.log(`✨ Nouvelle partie créée pour la salle ${roomId}`);
         }

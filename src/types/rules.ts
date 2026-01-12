@@ -40,6 +40,7 @@ export interface RuleEffect {
 export interface Rule {
   id: string;
   trigger: TriggerType;
+  tileIndex?: number;
   conditions?: any[];
   effects: RuleEffect[];
   priority: number;
