@@ -1,8 +1,9 @@
 import express from 'express';
 import { createServer } from 'http';
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 import { GameState, Player, Tile } from './types/game';
 import { processDiceRoll } from './engine/processor';
 import { ActionType, TriggerType } from './types/rules';
@@ -30,6 +31,26 @@ const io = new Server(httpServer, {
 
 // --- Stockage des états de jeu ---
 const games: Record<string, GameState> = {};
+
+// --- Helper: Get Room ID by Socket ---
+function getRoomIdBySocket(socket: Socket): string | undefined {
+    // In Socket.io v4, socket.rooms is a Set containing the socket ID and the rooms joined
+    for (const room of socket.rooms) {
+        if (room !== socket.id) {
+            return room;
+        }
+    }
+    return undefined;
+}
+
+// --- Interface Rule ---
+interface Rule {
+    id: string;
+    title: string;
+    trigger: { type: string; value?: any };
+    tileIndex: number | null; // CRITICAL: Must be number or null
+    effects: { type: string; value: number; target: string }[];
+}
 
 // Route de test API
 app.get('/', (req, res) => {
@@ -163,6 +184,46 @@ io.on('connection', (socket) => {
             id: socket.id,
             message: "Un nouveau joueur est arrivé !"
         });
+    });
+
+    /**
+     * Tâche SJDP-65 : Création de règles dynamiques
+     */
+    socket.on('create_rule', (ruleData: any) => {
+        console.log(`📥 [RULE RECEIVED] from ${socket.id}`, ruleData);
+
+        const roomId = getRoomIdBySocket(socket);
+        if (!roomId || !games[roomId]) return;
+
+        // SAFETY CASTING: Prevent the "String vs Number" bug
+        // If tileIndex is provided (via trigger.value for ON_LAND), force it to be a Number.
+        // Note: The client sends trigger.value, but the engine expects tileIndex at the root for ON_LAND triggers
+        // We need to map it correctly.
+        
+        let safeTileIndex: number | null = null;
+        
+        // If the trigger is ON_LAND or ON_PASS_OVER, we use the trigger value as tileIndex
+        if ((ruleData.trigger.type === 'ON_LAND' || ruleData.trigger.type === 'ON_PASS_OVER') && 
+            ruleData.trigger.value !== null && ruleData.trigger.value !== undefined && ruleData.trigger.value !== "") {
+            safeTileIndex = Number(ruleData.trigger.value);
+        }
+
+        const newRule: any = {
+            ...ruleData,
+            tileIndex: safeTileIndex, // Use the sanitized number
+            id: ruleData.id || crypto.randomUUID(),
+            priority: 1, // Default priority
+            conditions: ruleData.conditions || []
+        };
+
+        // Persistence
+        games[roomId].activeRules.push(newRule);
+        console.log(`✅ [RULE SAVED] Total Rules: ${games[roomId].activeRules.length}`);
+
+        // Feedback
+        io.to(roomId).emit('rule_added', newRule);
+        // We also sync the full game state to ensure consistency
+        io.to(roomId).emit('game_state_sync', games[roomId]);
     });
 
     /**
