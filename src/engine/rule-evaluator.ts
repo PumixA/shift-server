@@ -51,14 +51,52 @@ export function getApplicableRules(state: GameState, contextData: any, triggerTy
   return matches;
 }
 
+// Priority Definition
+const ACTION_PRIORITY: Record<string, number> = {
+  // Priority 1 (High)
+  'MODIFY_DICE_SIDES': 1,
+  'ADD_DICE_MODIFIER': 1,
+  
+  // Priority 2 (Movement Relative)
+  [ActionType.MOVE_RELATIVE]: 2,
+  
+  // Priority 3 (Movement Absolute)
+  [ActionType.TELEPORT]: 3,
+  [ActionType.MOVE_TO_TILE]: 3,
+  
+  // Priority 4 (Stats)
+  [ActionType.MODIFY_SCORE]: 4,
+  [ActionType.MODIFY_STAT]: 4,
+  
+  // Priority 5 (Low/Flux) - Default
+};
+
+function getEffectPriority(effectType: string): number {
+    return ACTION_PRIORITY[effectType] ?? 5;
+}
+
+function getRulePriority(rule: Rule): number {
+    if (!rule.effects || rule.effects.length === 0) return 5;
+    // The priority of a rule is determined by its highest priority effect (lowest number)
+    return Math.min(...rule.effects.map(e => getEffectPriority(e.type)));
+}
+
 export function sortRules(rules: Rule[]): Rule[] {
-    return rules.sort((a, b) => {
-        // Critère 1 : Priorité (1 = Haute, donc ASC)
-        if (a.priority !== b.priority) {
-            return a.priority - b.priority;
+    return [...rules].sort((a, b) => {
+        const priorityA = getRulePriority(a);
+        const priorityB = getRulePriority(b);
+
+        // 1. Priority Level (Ascending: 1 -> 5)
+        if (priorityA !== priorityB) {
+            return priorityA - priorityB;
         }
-        // Critère 2 : ID (ASC) pour simuler FIFO si pas de date
-        return a.id.localeCompare(b.id);
+
+        // 2. Creation Date (Ascending: Oldest -> Newest)
+        // Assume rule.createdAt exists. If not, use 0.
+        const dateA = (a as any).createdAt ? new Date((a as any).createdAt).getTime() : 0;
+        const dateB = (b as any).createdAt ? new Date((b as any).createdAt).getTime() : 0;
+
+        return dateA - dateB;
     });
 }
 
@@ -67,6 +105,9 @@ export function sortRules(rules: Rule[]): Rule[] {
  * Uses Deep Cloning to ensure immutability during calculation.
  */
 export function executeRuleChain(initialState: GameState, playerId: string, rules: Rule[]): RuleResult {
+  // Sort rules based on priority and chronology
+  const sortedRules = sortRules(rules);
+
   // 1. Deep Clone to create a "Sandboxed State" for calculation
   let currentState = JSON.parse(JSON.stringify(initialState));
   const logs: string[] = [];
@@ -78,8 +119,8 @@ export function executeRuleChain(initialState: GameState, playerId: string, rule
     return { state: initialState, logs };
   }
 
-  // 3. Iterate through rules (FIFO - assumed sorted by caller)
-  for (const rule of rules) {
+  // 3. Iterate through sorted rules
+  for (const rule of sortedRules) {
     logs.push(`⚡ Executing Rule: "${rule.title || rule.id}"`);
 
     // 4. Iterate through effects of the rule
