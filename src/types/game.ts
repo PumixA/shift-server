@@ -26,3 +26,8 @@ export interface RuleLog {
     ruleId: string;
     message: string;
 }
+
+export interface RuleResult {
+    state: GameState;
+    logs: string[];
+}

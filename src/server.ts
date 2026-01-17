@@ -90,6 +90,7 @@ io.on('connection', (socket) => {
                 activeRules: [
                     {
                         id: "turbo-tile-5",
+                        title: "Turbo Boost",
                         trigger: TriggerType.ON_LAND,
                         tileIndex: 5,
                         priority: 1,
@@ -104,6 +105,7 @@ io.on('connection', (socket) => {
                     },
                     {
                         id: "trap-tile-10",
+                        title: "Trap",
                         trigger: TriggerType.ON_LAND,
                         tileIndex: 10,
                         priority: 1,
@@ -118,6 +120,7 @@ io.on('connection', (socket) => {
                     },
                     {
                         id: "teleport-tile-15",
+                        title: "Teleport",
                         trigger: TriggerType.ON_LAND,
                         tileIndex: 15,
                         priority: 1,
@@ -289,7 +292,7 @@ io.on('connection', (socket) => {
 
         // --- DÉLÉGATION AU MOTEUR DE JEU (SJDP-54) ---
         const result = processDiceRoll(game, socket.id, diceValue);
-        game = result.state;
+        game = result.newState; // Updated property name
         games[data.roomId] = game; // Mise à jour de l'état global
 
         // Récupération du joueur mis à jour pour vérifier la victoire

@@ -22,6 +22,7 @@ export enum ActionType {
   TELEPORT = 'TELEPORT',
   SWAP_POSITIONS = 'SWAP_POSITIONS',
   BACK_TO_START = 'BACK_TO_START',
+  MOVE_TO_TILE = 'MOVE_TO_TILE', // Added for compatibility
 
   // Flux
   SKIP_TURN = 'SKIP_TURN',
@@ -29,16 +30,18 @@ export enum ActionType {
 
   // Stats
   MODIFY_SCORE = 'MODIFY_SCORE',
+  MODIFY_STAT = 'MODIFY_STAT', // Added for compatibility
 }
 
 export interface RuleEffect {
-  type: ActionType;
+  type: ActionType | string; // Allow string for flexibility with legacy/future types
   value: number | string;
   target: 'self' | 'all' | 'others';
 }
 
 export interface Rule {
   id: string;
+  title?: string; // Added title property
   trigger: TriggerType;
   tileIndex?: number;
   conditions?: any[];
